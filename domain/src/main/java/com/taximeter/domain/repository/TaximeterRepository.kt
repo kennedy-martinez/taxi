@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.Flow
 
 interface TaximeterRepository {
 
-    fun getPriceConfig(): Flow<PriceConfig>
+    fun getPriceConfig(): Flow<PriceConfig?>
+
+    suspend fun fetchPriceConfigIfNeeded()
 
     fun getRideUpdates(
         route: RouteItem,
