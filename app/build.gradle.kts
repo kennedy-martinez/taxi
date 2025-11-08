@@ -88,6 +88,12 @@ dependencies {
 
     androidTestImplementation(libs.mockk.android)
     androidTestImplementation(libs.byte.buddy.android)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.coroutines.test)
+    androidTestImplementation(libs.mockwebserver)
+    androidTestImplementation(libs.androidx.room.testing)
+
+    testImplementation(libs.androidx.arch.core.testing)
 
     // Modules
     implementation(project(":domain"))

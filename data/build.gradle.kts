@@ -32,6 +32,11 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+    packaging {
+        resources {
+            excludes.add("META-INF/**")
+        }
+    }
 }
 
 dependencies {
@@ -66,8 +71,11 @@ dependencies {
 
     implementation(libs.androidx.hilt.work)
 
+    androidTestImplementation(libs.mockk.android)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.coroutines.test)
+    androidTestImplementation(libs.mockwebserver)
+    androidTestImplementation(libs.androidx.room.testing)
 
 
     // MODULE
