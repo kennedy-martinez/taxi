@@ -1,6 +1,7 @@
 package com.taximeter.ui.taximeter
 
 import app.cash.turbine.test
+import com.taximeter.data.strategy.LuggageStrategy
 import com.taximeter.domain.model.ExecutionConfiguration
 import com.taximeter.domain.model.LocationPoint
 import com.taximeter.domain.model.PriceConfig
@@ -52,7 +53,8 @@ class TaximeterViewModelTest {
                 repository.getRideUpdates(TEST_ROUTE, TEST_EXECUTION_CONFIG)
             } returns fakeRideFlow
 
-            viewModel = TaximeterViewModel(repository)
+            val testStrategies = setOf(LuggageStrategy())
+            viewModel = TaximeterViewModel(repository, testStrategies)
 
             viewModel.uiState.test {
 

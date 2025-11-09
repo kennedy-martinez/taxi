@@ -7,6 +7,7 @@ import com.taximeter.domain.model.LocationPoint
 import com.taximeter.domain.model.PriceConfig
 import com.taximeter.domain.model.RouteItem
 import com.taximeter.domain.repository.TaximeterRepository
+import com.taximeter.domain.strategy.SupplementStrategy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,7 +31,8 @@ import kotlin.math.sqrt
 
 @HiltViewModel
 open class TaximeterViewModel @Inject constructor(
-    private val repository: TaximeterRepository
+    private val repository: TaximeterRepository,
+    private val supplementStrategies: Set<@JvmSuppressWildcards SupplementStrategy>
 ) : ViewModel() {
 
     private val routeToTest = RouteItem.Route1
@@ -38,6 +40,13 @@ open class TaximeterViewModel @Inject constructor(
 
     private val _rideStatus = MutableStateFlow(RideStatus.IDLE)
     private val _supplementCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+
+    private val strategyMap: Map<String, SupplementStrategy> =
+        supplementStrategies.associateBy { it.id }
+
+    private val supplementDisplayNames = mapOf(
+        "luggage" to "Supplement 1"
+    )
 
     private val _activeRideDetails = _rideStatus.flatMapLatest { status ->
         if (status == RideStatus.ACTIVE) {
@@ -85,32 +94,27 @@ open class TaximeterViewModel @Inject constructor(
         viewModelScope.launch {
             repository.fetchPriceConfigIfNeeded()
         }
-        _supplementCounts.value = mapOf(
-            "luggage" to 0,
-            "supplement_2" to 0
-        )
+        _supplementCounts.value = supplementStrategies.associate { it.id to 0 }
     }
 
     private fun createIdleUiState(
         supplementCounts: Map<String, Int>
     ): TaximeterUiState {
-        val supplements = listOf(
+
+        val supplements = supplementStrategies.map { strategy ->
             SupplementUiModel(
-                "luggage",
-                "Supplement 1",
-                supplementCounts.getOrDefault("luggage", 0)
-            ),
-            SupplementUiModel(
-                "supplement_2",
-                "Supplement 2",
-                supplementCounts.getOrDefault("supplement_2", 0)
+                id = strategy.id,
+                name = supplementDisplayNames.getOrDefault(strategy.id, strategy.id),
+                count = supplementCounts.getOrDefault(strategy.id, 0)
             )
-        )
-        val luggageCost = supplementCounts.getOrDefault("luggage", 0) * 5.0
-        val totalSupplementCost = luggageCost
+        }
+
+        val totalSupplementCost = supplementCounts.mapNotNull { (id, count) ->
+            strategyMap[id]?.calculate(count)
+        }.sum()
 
         val breakdown = mutableListOf<PriceBreakdownItem>()
-        if (luggageCost > 0) {
+        if (totalSupplementCost > 0) {
             breakdown.add(
                 PriceBreakdownItem(
                     "Supplements",
@@ -139,9 +143,11 @@ open class TaximeterViewModel @Inject constructor(
 
         val distanceCost = distanceKm * priceConfig.pricePerKm
         val timeCost = rideTimeSeconds * priceConfig.pricePerSecond
-        val luggageCost = supplementCounts.getOrDefault("luggage", 0) * 5.0
 
-        val totalSupplementCost = luggageCost
+        val totalSupplementCost = supplementCounts.mapNotNull { (id, count) ->
+            strategyMap[id]?.calculate(count)
+        }.sum()
+
         val totalFare = distanceCost + timeCost + totalSupplementCost
 
         val breakdown = mutableListOf<PriceBreakdownItem>()
@@ -164,19 +170,13 @@ open class TaximeterViewModel @Inject constructor(
             )
         )
 
-
-        val supplements = listOf(
+        val supplements = supplementStrategies.map { strategy ->
             SupplementUiModel(
-                "luggage",
-                "Supplement 1",
-                supplementCounts.getOrDefault("luggage", 0)
-            ),
-            SupplementUiModel(
-                "supplement_2",
-                "Supplement 2",
-                supplementCounts.getOrDefault("supplement_2", 0)
+                id = strategy.id,
+                name = supplementDisplayNames.getOrDefault(strategy.id, strategy.id),
+                count = supplementCounts.getOrDefault(strategy.id, 0)
             )
-        )
+        }
 
         val hours = TimeUnit.SECONDS.toHours(rideTimeSeconds)
         val minutes = TimeUnit.SECONDS.toMinutes(rideTimeSeconds) % 60
@@ -232,7 +232,7 @@ open class TaximeterViewModel @Inject constructor(
             RideStatus.FINISHED -> {
                 _rideStatus.value = RideStatus.IDLE
                 _finalRideData.value = Pair(0.0, 0L)
-                _supplementCounts.value = mapOf("luggage" to 0, "supplement_2" to 0)
+                _supplementCounts.value = supplementStrategies.associate { it.id to 0 }
             }
         }
     }
