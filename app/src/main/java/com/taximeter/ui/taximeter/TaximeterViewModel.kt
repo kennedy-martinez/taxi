@@ -8,6 +8,7 @@ import com.taximeter.domain.model.PriceConfig
 import com.taximeter.domain.model.RouteItem
 import com.taximeter.domain.repository.TaximeterRepository
 import com.taximeter.domain.strategy.SupplementStrategy
+import com.taximeter.ui.truncateTwoDecimals
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -156,14 +157,14 @@ open class TaximeterViewModel @Inject constructor(
         status: RideStatus
     ): TaximeterUiState {
 
-        val distanceCost = distanceKm * priceConfig.pricePerKm
-        val timeCost = rideTimeSeconds * priceConfig.pricePerSecond
+        val distanceCost = (distanceKm * priceConfig.pricePerKm).truncateTwoDecimals()
+        val timeCost = (rideTimeSeconds * priceConfig.pricePerSecond).truncateTwoDecimals()
 
         val totalSupplementCost = supplementCounts.entries.sumOf { (id, count) ->
             strategyMap[id]?.calculate(count) ?: 0.0
-        }
+        }.truncateTwoDecimals()
 
-        val totalFare = distanceCost + timeCost + totalSupplementCost
+        val totalFare = (distanceCost + timeCost + totalSupplementCost).truncateTwoDecimals()
 
         val breakdown = mutableListOf<PriceBreakdownItem>()
         if (distanceCost > 0) breakdown.add(
@@ -209,7 +210,7 @@ open class TaximeterViewModel @Inject constructor(
         val startTime = points.first().timestamp
         val endTime = points.last().timestamp
         val totalTimeSeconds = TimeUnit.MILLISECONDS.toSeconds(endTime - startTime)
-        return Pair(totalDistanceMeters / 1000.0, totalTimeSeconds)
+        return Pair((totalDistanceMeters / 1000.0).truncateTwoDecimals(), totalTimeSeconds)
     }
 
     private fun haversineDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {

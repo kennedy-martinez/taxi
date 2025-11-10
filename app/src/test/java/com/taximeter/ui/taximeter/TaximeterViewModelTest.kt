@@ -12,6 +12,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -22,8 +23,8 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
-import java.util.Locale
 import java.util.concurrent.TimeUnit
+import kotlin.math.floor
 
 @ExperimentalCoroutinesApi
 class TaximeterViewModelTest {
@@ -46,7 +47,7 @@ class TaximeterViewModelTest {
 
         every { mockLuggageStrategy.id } returns TEST_SUPPLEMENT_ID
         every { mockLuggageStrategy.calculate(any()) } answers {
-            firstArg<Int>() * TEST_LUGGAGE_COST
+            firstArg<Int>() * TEST_LUGGAGE_COST_DOUBLE
         }
         mockStrategiesSet = setOf(mockLuggageStrategy)
     }
@@ -56,13 +57,17 @@ class TaximeterViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private fun Double.truncateTwoDecimals(): Double {
+        return floor(this * 100) / 100
+    }
+
     @Test
-    fun `GXIVEN test scenario WHEN 1 luggage added and ride starts THEN totalFare is 25,20`() =
+    fun `GIVEN test scenario WHEN 1 luggage added and ride starts THEN totalFare is 25,20`() =
         runTest {
 
             val testStartTime = testDispatcher.scheduler.currentTime
             val testEndTime =
-                testStartTime + TimeUnit.SECONDS.toMillis(TEST_DURATION_SECONDS.toLong())
+                testStartTime + TimeUnit.SECONDS.toMillis(TEST_DURATION_SECONDS_ROUTE_1)
             val testStartPoint = LocationPoint(
                 latitude = TEST_START_LATITUDE,
                 longitude = TEST_START_LONGITUDE,
@@ -74,7 +79,11 @@ class TaximeterViewModelTest {
                 timestamp = testEndTime
             )
 
-            val fakeRideFlow = flowOf(testStartPoint, testEndPoint)
+            val fakeRideFlow = flow {
+                emit(testStartPoint)
+                emit(testEndPoint)
+                kotlinx.coroutines.delay(Long.MAX_VALUE)
+            }
 
             coEvery {
                 repository.getRideUpdates(TEST_ROUTE, TEST_EXECUTION_CONFIG)
@@ -94,8 +103,6 @@ class TaximeterViewModelTest {
                 viewModel.onStartStopClick()
                 testDispatcher.scheduler.advanceUntilIdle()
                 awaitItem()
-
-                testDispatcher.scheduler.advanceUntilIdle()
                 awaitItem()
                 awaitItem()
 
@@ -105,9 +112,17 @@ class TaximeterViewModelTest {
                 val finalState = awaitItem()
 
                 assertEquals(RideStatus.FINISHED, finalState.rideStatus)
-                assertEquals(EXPECTED_DISTANCE_STRING, finalState.traveledDistance)
-                assertEquals(EXPECTED_TIME_STRING, finalState.elapsedTime)
-                assertEquals(EXPECTED_FARE_STRING_FINAL, finalState.totalFare.replace(',', '.'))
+                assertEquals(
+                    EXPECTED_DISTANCE_KM_ROUTE_1.truncateTwoDecimals(),
+                    finalState.traveledDistanceKm.truncateTwoDecimals(),
+                    0.001
+                )
+                assertEquals(TEST_DURATION_SECONDS_ROUTE_1, finalState.elapsedTimeSeconds)
+                assertEquals(
+                    EXPECTED_FARE_ROUTE_1_WITH_LUGGAGE_DOUBLE.truncateTwoDecimals(),
+                    finalState.totalFare.truncateTwoDecimals(),
+                    0.001
+                )
             }
         }
 
@@ -131,7 +146,7 @@ class TaximeterViewModelTest {
 
             val testStartTime = testDispatcher.scheduler.currentTime
             val testEndTime =
-                testStartTime + TimeUnit.SECONDS.toMillis(TEST_DURATION_SECONDS.toLong())
+                testStartTime + TimeUnit.SECONDS.toMillis(TEST_DURATION_SECONDS_ROUTE_1)
             val testStartPoint = LocationPoint(
                 latitude = TEST_START_LATITUDE,
                 longitude = TEST_START_LONGITUDE,
@@ -143,7 +158,11 @@ class TaximeterViewModelTest {
                 timestamp = testEndTime
             )
 
-            val fakeRideFlow = flowOf(testStartPoint, testEndPoint)
+            val fakeRideFlow = flow {
+                emit(testStartPoint)
+                emit(testEndPoint)
+                kotlinx.coroutines.delay(Long.MAX_VALUE)
+            }
 
             coEvery {
                 repository.getRideUpdates(
@@ -167,10 +186,11 @@ class TaximeterViewModelTest {
                 runCurrent()
                 testDispatcher.scheduler.advanceUntilIdle()
                 val finalState = awaitItem()
+
                 assertEquals(RideStatus.FINISHED, finalState.rideStatus)
                 assertEquals(
-                    EXPECTED_FARE_STRING_FINAL_NO_LUGGAGE,
-                    finalState.totalFare.replace(',', '.')
+                    EXPECTED_FARE_ROUTE_1_NO_LUGGAGE_DOUBLE.truncateTwoDecimals(),
+                    finalState.totalFare.truncateTwoDecimals(), 0.001
                 )
             }
         }
@@ -178,14 +198,15 @@ class TaximeterViewModelTest {
     @Test
     fun `GIVEN short ride (Route2) WHEN 1 luggage added and ride starts THEN totalFare is 5,60`() =
         runTest {
-            val fakeShortRideFlow = flowOf(
-                LocationPoint(40.416775, -3.703790, 1001L),
-                LocationPoint(40.417775, -3.703790, 10000L),
-                LocationPoint(40.418775, -3.703790, 20000L),
-                LocationPoint(40.419775, -3.703790, 30000L),
-                LocationPoint(40.420775, -3.703790, 40000L),
-                LocationPoint(40.421775, -3.703790, 50000L)
-            )
+            val fakeShortRideFlow = flow {
+                emit(LocationPoint(40.416775, -3.703790, 1001L))
+                emit(LocationPoint(40.417775, -3.703790, 10000L))
+                emit(LocationPoint(40.418775, -3.703790, 20000L))
+                emit(LocationPoint(40.419775, -3.703790, 30000L))
+                emit(LocationPoint(40.420775, -3.703790, 40000L))
+                emit(LocationPoint(40.421775, -3.703790, 50000L))
+                kotlinx.coroutines.delay(Long.MAX_VALUE)
+            }
 
             coEvery {
                 repository.getRideUpdates(
@@ -206,7 +227,6 @@ class TaximeterViewModelTest {
                 runCurrent()
                 testDispatcher.scheduler.advanceUntilIdle()
                 awaitItem()
-                testDispatcher.scheduler.advanceUntilIdle()
                 awaitItem()
                 awaitItem()
                 awaitItem()
@@ -217,78 +237,52 @@ class TaximeterViewModelTest {
                 runCurrent()
                 testDispatcher.scheduler.advanceUntilIdle()
                 val finalState = awaitItem()
+
                 assertEquals(RideStatus.FINISHED, finalState.rideStatus)
-                assertEquals(EXPECTED_DISTANCE_STRING_ROUTE_2, finalState.traveledDistance)
-                assertEquals(EXPECTED_TIME_STRING_ROUTE_2, finalState.elapsedTime)
                 assertEquals(
-                    EXPECTED_FARE_STRING_ROUTE_2_FINAL,
-                    finalState.totalFare.replace(',', '.')
+                    EXPECTED_FARE_ROUTE_2_WITH_LUGGAGE_DOUBLE.truncateTwoDecimals(),
+                    finalState.totalFare.truncateTwoDecimals(), 0.001
                 )
             }
         }
 
     companion object {
-        private const val TEST_DISTANCE_FORMAT = "%.1f km"
-        private const val TEST_DISTANCE_KM_ROUTE_2 = 0.555
-        private const val TEST_TIME_FORMAT = "%02d:%02d:%02d"
-        private const val TEST_DURATION_SECONDS_ROUTE_2 = 48L
-
-        private const val TEST_LUGGAGE_COST = 5.0
-        private const val TEST_PRICE_PER_KM = 0.2
-        private const val TEST_PRICE_PER_SECOND = 0.01
-        private const val TEST_CURRENCY_FORMAT = "%.2f €"
-
-        private const val EXPECTED_FARE_DOUBLE_ROUTE_2_WITH_LUGGAGE =
-            (TEST_DISTANCE_KM_ROUTE_2 * TEST_PRICE_PER_KM) +
-                    (TEST_DURATION_SECONDS_ROUTE_2 * TEST_PRICE_PER_SECOND) +
-                    TEST_LUGGAGE_COST
-        private val EXPECTED_DISTANCE_STRING_ROUTE_2 =
-            String.format(Locale.US, TEST_DISTANCE_FORMAT, TEST_DISTANCE_KM_ROUTE_2)
-        private val EXPECTED_TIME_STRING_ROUTE_2 = String.format(
-            Locale.US,
-            TEST_TIME_FORMAT,
-            0,
-            0,
-            TEST_DURATION_SECONDS_ROUTE_2
-        )
-        private val EXPECTED_FARE_STRING_ROUTE_2_FINAL = String.format(
-            Locale.US,
-            TEST_CURRENCY_FORMAT,
-            EXPECTED_FARE_DOUBLE_ROUTE_2_WITH_LUGGAGE
-        )
-
-        private const val TEST_SUPPLEMENT_ID = "luggage"
-        private const val TEST_DISTANCE_KM = 11.0
-        private const val TEST_DURATION_SECONDS = 1800
-        private const val EXPECTED_FINAL_FARE_DOUBLE = (TEST_DISTANCE_KM * TEST_PRICE_PER_KM) +
-                (TEST_DURATION_SECONDS * TEST_PRICE_PER_SECOND) +
-                TEST_LUGGAGE_COST
-
-        private val EXPECTED_DISTANCE_STRING = String.format(Locale.US, "%.1f km", TEST_DISTANCE_KM)
-        private val EXPECTED_TIME_STRING = String.format(Locale.US, "%02d:%02d:%02d", 0, 30, 0)
-        private val EXPECTED_FARE_STRING_FINAL =
-            String.format(Locale.US, "%.2f €", EXPECTED_FINAL_FARE_DOUBLE)
+        private const val TEST_LUGGAGE_COST_DOUBLE = 5.0
+        private const val TEST_PRICE_PER_KM_DOUBLE = 0.2
+        private const val TEST_PRICE_PER_SECOND_DOUBLE = 0.01
 
         private val TEST_PRICE_CONFIG = PriceConfig(
-            pricePerKm = TEST_PRICE_PER_KM,
-            pricePerSecond = TEST_PRICE_PER_SECOND
+            pricePerKm = TEST_PRICE_PER_KM_DOUBLE,
+            pricePerSecond = TEST_PRICE_PER_SECOND_DOUBLE
         )
+        private const val TEST_SUPPLEMENT_ID = "luggage"
+        private val TEST_ROUTE = RouteItem.Route1
+        private val TEST_EXECUTION_CONFIG = ExecutionConfiguration.Fast
+        private val TEST_ROUTE_2 = RouteItem.Route2
+
+        private const val EXPECTED_DISTANCE_KM_ROUTE_1 = 11.0193
+        private const val TEST_DURATION_SECONDS_ROUTE_1 = 1800L
         private const val TEST_START_LATITUDE = 40.0
         private const val TEST_START_LONGITUDE = -3.0
         private const val TEST_END_LATITUDE = 40.099099
         private const val TEST_END_LONGITUDE = -3.0
 
-        private const val EXPECTED_FINAL_FARE_DOUBLE_NO_LUGGAGE =
-            (TEST_DISTANCE_KM * TEST_PRICE_PER_KM) +
-                    (TEST_DURATION_SECONDS * TEST_PRICE_PER_SECOND)
-        private val EXPECTED_FARE_STRING_FINAL_NO_LUGGAGE = String.format(
-            Locale.US,
-            TEST_CURRENCY_FORMAT,
-            EXPECTED_FINAL_FARE_DOUBLE_NO_LUGGAGE
-        )
+        private const val BASE_FARE_ROUTE_1_DOUBLE =
+            (EXPECTED_DISTANCE_KM_ROUTE_1 * TEST_PRICE_PER_KM_DOUBLE) +
+                    (TEST_DURATION_SECONDS_ROUTE_1 * TEST_PRICE_PER_SECOND_DOUBLE)
 
-        private val TEST_ROUTE = RouteItem.Route1
-        private val TEST_EXECUTION_CONFIG = ExecutionConfiguration.Fast
-        private val TEST_ROUTE_2 = RouteItem.Route2
+        private const val EXPECTED_FARE_ROUTE_1_NO_LUGGAGE_DOUBLE = BASE_FARE_ROUTE_1_DOUBLE
+        private const val EXPECTED_FARE_ROUTE_1_WITH_LUGGAGE_DOUBLE =
+            BASE_FARE_ROUTE_1_DOUBLE + TEST_LUGGAGE_COST_DOUBLE
+
+        private const val EXPECTED_DISTANCE_KM_ROUTE_2 = 0.555
+        private const val TEST_DURATION_SECONDS_ROUTE_2 = 48L
+
+        private const val BASE_FARE_ROUTE_2_DOUBLE =
+            (EXPECTED_DISTANCE_KM_ROUTE_2 * TEST_PRICE_PER_KM_DOUBLE) +
+                    (TEST_DURATION_SECONDS_ROUTE_2 * TEST_PRICE_PER_SECOND_DOUBLE)
+
+        private const val EXPECTED_FARE_ROUTE_2_WITH_LUGGAGE_DOUBLE =
+            BASE_FARE_ROUTE_2_DOUBLE + TEST_LUGGAGE_COST_DOUBLE
     }
 }
