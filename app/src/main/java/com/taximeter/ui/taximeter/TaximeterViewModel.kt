@@ -21,7 +21,6 @@ import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.math.atan2
@@ -40,10 +39,6 @@ open class TaximeterViewModel @Inject constructor(
 
     private val strategyMap: Map<String, SupplementStrategy> =
         supplementStrategies.associateBy { it.id }
-
-    private val supplementDisplayNames = mapOf(
-        "luggage" to "Supplement 1"
-    )
 
     private val _rideStatus = MutableStateFlow(RideStatus.IDLE)
     private val _supplementCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -69,33 +64,30 @@ open class TaximeterViewModel @Inject constructor(
         _isError
     ) { status, config, supplements, activeDetails, isError ->
 
-        if (config == null) {
-            TaximeterUiState(
-                isLoadingConfig = true,
-                isConfigError = false
-            )
+        val state: TaximeterUiState = if (config == null) {
+            TaximeterUiState(isLoadingConfig = true, isConfigError = false)
         } else if (isError) {
-            TaximeterUiState(
-                isLoadingConfig = false,
-                isConfigError = true
-            )
+            TaximeterUiState(isLoadingConfig = false, isConfigError = true)
         } else {
             if (status == RideStatus.ACTIVE) {
                 _finalRideData.value = activeDetails
             }
 
             when (status) {
-                RideStatus.IDLE -> createIdleUiState(supplements, config)
+                RideStatus.IDLE -> createIdleUiState(supplements)
                 RideStatus.ACTIVE -> {
                     val (dist, timeGps) = activeDetails
                     createActiveUiState(config, dist, timeGps, supplements, RideStatus.ACTIVE)
                 }
+
                 RideStatus.FINISHED -> {
                     val (dist, timeGps) = _finalRideData.value
                     createActiveUiState(config, dist, timeGps, supplements, RideStatus.FINISHED)
                 }
             }
         }
+        state
+
     }.onStart {
         loadConfig()
     }.stateIn(
@@ -128,8 +120,7 @@ open class TaximeterViewModel @Inject constructor(
     }
 
     private fun createIdleUiState(
-        supplementCounts: Map<String, Int>,
-        priceConfig: PriceConfig
+        supplementCounts: Map<String, Int>
     ): TaximeterUiState {
 
         val totalSupplementCost = supplementCounts.entries.sumOf { (id, count) ->
@@ -139,21 +130,18 @@ open class TaximeterViewModel @Inject constructor(
         val breakdown = mutableListOf<PriceBreakdownItem>()
         if (totalSupplementCost > 0) {
             breakdown.add(
-                PriceBreakdownItem(
-                    "Supplements",
-                    String.format(Locale.US, "%.2f €", totalSupplementCost)
-                )
+                PriceBreakdownItem(PriceBreakdownConcept.SUPPLEMENTS, totalSupplementCost)
             )
         }
 
         val supplements = createSupplementUiModels(supplementCounts)
 
         return TaximeterUiState(
-            elapsedTime = "00:00:00",
-            traveledDistance = "0.0 km",
+            elapsedTimeSeconds = 0L,
+            traveledDistanceKm = 0.0,
             supplements = supplements,
             priceBreakdown = breakdown,
-            totalFare = String.format(Locale.US, "%.2f €", totalSupplementCost),
+            totalFare = totalSupplementCost,
             rideStatus = RideStatus.IDLE,
             isLoadingConfig = false,
             isConfigError = false
@@ -179,28 +167,23 @@ open class TaximeterViewModel @Inject constructor(
 
         val breakdown = mutableListOf<PriceBreakdownItem>()
         if (distanceCost > 0) breakdown.add(
-            PriceBreakdownItem("Distance", String.format(Locale.US, "%.2f €", distanceCost))
+            PriceBreakdownItem(PriceBreakdownConcept.DISTANCE, distanceCost)
         )
         if (timeCost > 0) breakdown.add(
-            PriceBreakdownItem("Time", String.format(Locale.US, "%.2f €", timeCost))
+            PriceBreakdownItem(PriceBreakdownConcept.TIME, timeCost)
         )
         if (totalSupplementCost > 0) breakdown.add(
-            PriceBreakdownItem("Supplements", String.format(Locale.US, "%.2f €", totalSupplementCost))
+            PriceBreakdownItem(PriceBreakdownConcept.SUPPLEMENTS, totalSupplementCost)
         )
 
         val supplements = createSupplementUiModels(supplementCounts)
 
-        val hours = TimeUnit.SECONDS.toHours(rideTimeSeconds)
-        val minutes = TimeUnit.SECONDS.toMinutes(rideTimeSeconds) % 60
-        val seconds = rideTimeSeconds % 60
-        val timeString = String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
-
         return TaximeterUiState(
-            elapsedTime = timeString,
-            traveledDistance = String.format(Locale.US, "%.1f km", distanceKm),
+            elapsedTimeSeconds = rideTimeSeconds,
+            traveledDistanceKm = distanceKm,
             supplements = supplements,
             priceBreakdown = breakdown,
-            totalFare = String.format(Locale.US, "%.2f €", totalFare),
+            totalFare = totalFare,
             rideStatus = status,
             isLoadingConfig = false,
             isConfigError = false
@@ -209,13 +192,8 @@ open class TaximeterViewModel @Inject constructor(
 
     private fun createSupplementUiModels(supplementCounts: Map<String, Int>): List<SupplementUiModel> {
         return supplementStrategies.map { strategy ->
-            val name = when (strategy.id) {
-                "luggage" -> "Supplement 1"
-                else -> strategy.id
-            }
             SupplementUiModel(
                 id = strategy.id,
-                name = name,
                 count = supplementCounts.getOrDefault(strategy.id, 0)
             )
         }
@@ -252,9 +230,11 @@ open class TaximeterViewModel @Inject constructor(
             RideStatus.IDLE -> {
                 _rideStatus.value = RideStatus.ACTIVE
             }
+
             RideStatus.ACTIVE -> {
                 _rideStatus.value = RideStatus.FINISHED
             }
+
             RideStatus.FINISHED -> {
                 _rideStatus.value = RideStatus.IDLE
                 _finalRideData.value = Pair(0.0, 0L)

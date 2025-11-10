@@ -1,4 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Taximeter</string>
     <string name="title_activity_main">MainActivity</string>
+    <string name="ui_time">TIME</string>
+    <string name="ui_distance">DISTANCE</string>
+    <string name="ui_supplements">SUPPLEMENTS</string>
+    <string name="ui_price_breakdown">PRICE BREAKDOWN</string>
+    <string name="ui_total_fare">TOTAL FARE</string>
+    <string name="ui_final_fare">FINAL FARE</string>
+
+    <string name="button_start">START</string>
+    <string name="button_stop">STOP</string>
+    <string name="button_new_ride">NEW RIDE</string>
+    <string name="button_retry">Retry</string>
+
+    <string name="error_loading_config">Error loading configuration</string>
+
+    <string name="content_desc_remove_supplement">Remove %s</string>
+    <string name="content_desc_add_supplement">Add %s</string>
+
+    <string name="supplement_name_luggage">Supplement 1</string>
+
+    <string name="breakdown_concept_distance">Distance</string>
+    <string name="breakdown_concept_time">Time</string>
+    <string name="breakdown_concept_supplements">Supplements</string>
+
+    <string name="format_time_idle">00:00:00</string>
+    <string name="format_time_active">%02d:%02d:%02d</string>
+    <string name="format_distance_idle">0.0 km</string>
+    <string name="format_distance_active">%.1f km</string>
+    <string name="format_price_eur">%.2f €</string>
 </resources>

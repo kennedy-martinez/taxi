@@ -38,15 +38,11 @@ class TaximeterRepositoryImpl @Inject constructor(
         try {
             val isCacheEmpty = configDao.getConfigCount() == 0
             if (isCacheEmpty) {
-                Log.d("TaximeterRepo", "Caché vacía. Obteniendo de la API...")
                 val configDto = apiService.getPriceConfig()
                 configDao.insertConfig(configDto.toEntity())
-                Log.d("TaximeterRepo", "Configuración guardada en caché.")
-            } else {
-                Log.d("TaximeterRepo", "Configuración cargada desde caché.")
             }
         } catch (e: Exception) {
-            Log.e("TaximeterRepo", "Error al refrescar la configuración", e)
+            throw e
         }
     }
 
