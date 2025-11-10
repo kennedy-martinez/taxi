@@ -13,10 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -35,11 +35,8 @@ open class TaximeterViewModel @Inject constructor(
     private val supplementStrategies: Set<@JvmSuppressWildcards SupplementStrategy>
 ) : ViewModel() {
 
-    private val routeToTest = RouteItem.Route1
+    private var routeToTest = RouteItem.Route1
     private val executionConfig = ExecutionConfiguration.Fast
-
-    private val _rideStatus = MutableStateFlow(RideStatus.IDLE)
-    private val _supplementCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
 
     private val strategyMap: Map<String, SupplementStrategy> =
         supplementStrategies.associateBy { it.id }
@@ -47,6 +44,10 @@ open class TaximeterViewModel @Inject constructor(
     private val supplementDisplayNames = mapOf(
         "luggage" to "Supplement 1"
     )
+
+    private val _rideStatus = MutableStateFlow(RideStatus.IDLE)
+    private val _supplementCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
+    private val _isError = MutableStateFlow(false)
 
     private val _activeRideDetails = _rideStatus.flatMapLatest { status ->
         if (status == RideStatus.ACTIVE) {
@@ -62,56 +63,78 @@ open class TaximeterViewModel @Inject constructor(
 
     open val uiState: StateFlow<TaximeterUiState> = combine(
         _rideStatus,
-        repository.getPriceConfig().filterNotNull(),
+        repository.getPriceConfig(),
         _supplementCounts,
-        _activeRideDetails
-    ) { status, config, supplements, activeDetails ->
+        _activeRideDetails,
+        _isError
+    ) { status, config, supplements, activeDetails, isError ->
 
-        if (status == RideStatus.ACTIVE) {
-            _finalRideData.value = activeDetails
-        }
-
-        when (status) {
-            RideStatus.IDLE -> createIdleUiState(supplements)
-
-            RideStatus.ACTIVE -> {
-                val (dist, timeGps) = activeDetails
-                createActiveUiState(config, dist, timeGps, supplements, RideStatus.ACTIVE)
+        if (config == null) {
+            TaximeterUiState(
+                isLoadingConfig = true,
+                isConfigError = false
+            )
+        } else if (isError) {
+            TaximeterUiState(
+                isLoadingConfig = false,
+                isConfigError = true
+            )
+        } else {
+            if (status == RideStatus.ACTIVE) {
+                _finalRideData.value = activeDetails
             }
 
-            RideStatus.FINISHED -> {
-                val (dist, timeGps) = _finalRideData.value
-                createActiveUiState(config, dist, timeGps, supplements, RideStatus.FINISHED)
+            when (status) {
+                RideStatus.IDLE -> createIdleUiState(supplements, config)
+                RideStatus.ACTIVE -> {
+                    val (dist, timeGps) = activeDetails
+                    createActiveUiState(config, dist, timeGps, supplements, RideStatus.ACTIVE)
+                }
+                RideStatus.FINISHED -> {
+                    val (dist, timeGps) = _finalRideData.value
+                    createActiveUiState(config, dist, timeGps, supplements, RideStatus.FINISHED)
+                }
             }
         }
+    }.onStart {
+        loadConfig()
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.Lazily,
-        initialValue = TaximeterUiState()
+        initialValue = TaximeterUiState(isLoadingConfig = true)
     )
 
     init {
-        viewModelScope.launch {
-            repository.fetchPriceConfigIfNeeded()
-        }
         _supplementCounts.value = supplementStrategies.associate { it.id to 0 }
     }
 
+    fun onRetryConfig() {
+        loadConfig()
+    }
+
+    private fun loadConfig() {
+        viewModelScope.launch {
+            _isError.value = false
+            try {
+                repository.fetchPriceConfigIfNeeded()
+            } catch (e: Exception) {
+                _isError.value = true
+            }
+        }
+    }
+
+    fun setTestRoute(route: RouteItem) {
+        routeToTest = route
+    }
+
     private fun createIdleUiState(
-        supplementCounts: Map<String, Int>
+        supplementCounts: Map<String, Int>,
+        priceConfig: PriceConfig
     ): TaximeterUiState {
 
-        val supplements = supplementStrategies.map { strategy ->
-            SupplementUiModel(
-                id = strategy.id,
-                name = supplementDisplayNames.getOrDefault(strategy.id, strategy.id),
-                count = supplementCounts.getOrDefault(strategy.id, 0)
-            )
+        val totalSupplementCost = supplementCounts.entries.sumOf { (id, count) ->
+            strategyMap[id]?.calculate(count) ?: 0.0
         }
-
-        val totalSupplementCost = supplementCounts.mapNotNull { (id, count) ->
-            strategyMap[id]?.calculate(count)
-        }.sum()
 
         val breakdown = mutableListOf<PriceBreakdownItem>()
         if (totalSupplementCost > 0) {
@@ -123,13 +146,17 @@ open class TaximeterViewModel @Inject constructor(
             )
         }
 
+        val supplements = createSupplementUiModels(supplementCounts)
+
         return TaximeterUiState(
             elapsedTime = "00:00:00",
             traveledDistance = "0.0 km",
             supplements = supplements,
             priceBreakdown = breakdown,
             totalFare = String.format(Locale.US, "%.2f €", totalSupplementCost),
-            rideStatus = RideStatus.IDLE
+            rideStatus = RideStatus.IDLE,
+            isLoadingConfig = false,
+            isConfigError = false
         )
     }
 
@@ -144,39 +171,24 @@ open class TaximeterViewModel @Inject constructor(
         val distanceCost = distanceKm * priceConfig.pricePerKm
         val timeCost = rideTimeSeconds * priceConfig.pricePerSecond
 
-        val totalSupplementCost = supplementCounts.mapNotNull { (id, count) ->
-            strategyMap[id]?.calculate(count)
-        }.sum()
+        val totalSupplementCost = supplementCounts.entries.sumOf { (id, count) ->
+            strategyMap[id]?.calculate(count) ?: 0.0
+        }
 
         val totalFare = distanceCost + timeCost + totalSupplementCost
 
         val breakdown = mutableListOf<PriceBreakdownItem>()
         if (distanceCost > 0) breakdown.add(
-            PriceBreakdownItem(
-                "Distance",
-                String.format(Locale.US, "%.2f €", distanceCost)
-            )
+            PriceBreakdownItem("Distance", String.format(Locale.US, "%.2f €", distanceCost))
         )
         if (timeCost > 0) breakdown.add(
-            PriceBreakdownItem(
-                "Time",
-                String.format(Locale.US, "%.2f €", timeCost)
-            )
+            PriceBreakdownItem("Time", String.format(Locale.US, "%.2f €", timeCost))
         )
         if (totalSupplementCost > 0) breakdown.add(
-            PriceBreakdownItem(
-                "Supplements",
-                String.format(Locale.US, "%.2f €", totalSupplementCost)
-            )
+            PriceBreakdownItem("Supplements", String.format(Locale.US, "%.2f €", totalSupplementCost))
         )
 
-        val supplements = supplementStrategies.map { strategy ->
-            SupplementUiModel(
-                id = strategy.id,
-                name = supplementDisplayNames.getOrDefault(strategy.id, strategy.id),
-                count = supplementCounts.getOrDefault(strategy.id, 0)
-            )
-        }
+        val supplements = createSupplementUiModels(supplementCounts)
 
         val hours = TimeUnit.SECONDS.toHours(rideTimeSeconds)
         val minutes = TimeUnit.SECONDS.toMinutes(rideTimeSeconds) % 60
@@ -189,8 +201,24 @@ open class TaximeterViewModel @Inject constructor(
             supplements = supplements,
             priceBreakdown = breakdown,
             totalFare = String.format(Locale.US, "%.2f €", totalFare),
-            rideStatus = status
+            rideStatus = status,
+            isLoadingConfig = false,
+            isConfigError = false
         )
+    }
+
+    private fun createSupplementUiModels(supplementCounts: Map<String, Int>): List<SupplementUiModel> {
+        return supplementStrategies.map { strategy ->
+            val name = when (strategy.id) {
+                "luggage" -> "Supplement 1"
+                else -> strategy.id
+            }
+            SupplementUiModel(
+                id = strategy.id,
+                name = name,
+                count = supplementCounts.getOrDefault(strategy.id, 0)
+            )
+        }
     }
 
     private fun calculateRideDetails(points: List<LocationPoint>): Pair<Double, Long> {
@@ -224,11 +252,9 @@ open class TaximeterViewModel @Inject constructor(
             RideStatus.IDLE -> {
                 _rideStatus.value = RideStatus.ACTIVE
             }
-
             RideStatus.ACTIVE -> {
                 _rideStatus.value = RideStatus.FINISHED
             }
-
             RideStatus.FINISHED -> {
                 _rideStatus.value = RideStatus.IDLE
                 _finalRideData.value = Pair(0.0, 0L)

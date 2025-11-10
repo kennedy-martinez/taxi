@@ -1,5 +1,11 @@
 package com.taximeter.ui.taximeter
 
+enum class RideStatus {
+    IDLE,
+    ACTIVE,
+    FINISHED
+}
+
 data class SupplementUiModel(
     val id: String,
     val name: String,
@@ -17,12 +23,7 @@ data class TaximeterUiState(
     val supplements: List<SupplementUiModel> = emptyList(),
     val priceBreakdown: List<PriceBreakdownItem> = emptyList(),
     val totalFare: String = "0.00 €",
-    val isRideActive: Boolean = false,
-    val rideStatus: RideStatus = RideStatus.IDLE
+    val rideStatus: RideStatus = RideStatus.IDLE,
+    val isLoadingConfig: Boolean = true,
+    val isConfigError: Boolean = false
 )
-
-enum class RideStatus {
-    IDLE,
-    ACTIVE,
-    FINISHED
-}
